@@ -1,0 +1,15 @@
+{
+  "name": "nfl-draft-watcher",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/providers/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @nfl-draft-watcher/web",
+    "build": "npm run build -w @nfl-draft-watcher/web",
+    "lint": "npm run lint -w @nfl-draft-watcher/web",
+    "typecheck": "npm run typecheck -w @nfl-draft-watcher/web"
+  }
+}
