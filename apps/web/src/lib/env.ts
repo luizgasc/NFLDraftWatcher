@@ -4,6 +4,7 @@ const serverEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  INTERNAL_INGEST_TOKEN: z.string().min(16).optional(),
 });
 
 const clientEnvSchema = z.object({
@@ -29,4 +30,16 @@ export function getEnvErrorMessage() {
 
 export function isSupabaseConfigured() {
   return clientEnv.success;
+}
+
+export function hasSupabaseAdminAccess() {
+  return env.success && Boolean(env.data.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+export function getInternalIngestToken() {
+  if (!env.success) {
+    return null;
+  }
+
+  return env.data.INTERNAL_INGEST_TOKEN ?? null;
 }

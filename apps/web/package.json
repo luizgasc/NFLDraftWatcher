@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@nfl-draft-watcher/domain": "0.1.0",
+    "@nfl-draft-watcher/draft-provider": "0.1.0",
     "@radix-ui/react-separator": "^1.1.7",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.57.4",
