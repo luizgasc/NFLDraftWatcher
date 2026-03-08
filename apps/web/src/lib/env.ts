@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+const positiveIntegerStringSchema = z
+  .string()
+  .regex(/^\d+$/)
+  .transform((value) => Number(value))
+  .pipe(z.number().int().positive());
+
 const serverEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
@@ -9,6 +15,10 @@ const serverEnvSchema = z.object({
   SPORTRADAR_ACCESS_LEVEL: z.enum(["trial", "production", "official"]).optional(),
   SPORTRADAR_LANGUAGE: z.string().min(2).optional(),
   SPORTRADAR_API_BASE_URL: z.url().optional(),
+  SPORTRADAR_ENRICH_NCAA_STATS: z.enum(["true", "false"]).optional(),
+  SPORTRADAR_PROFILE_CONCURRENCY: positiveIntegerStringSchema.optional(),
+  SPORTRADAR_PROFILE_LIMIT: positiveIntegerStringSchema.optional(),
+  SPORTRADAR_REQUEST_DELAY_MS: positiveIntegerStringSchema.optional(),
 });
 
 const clientEnvSchema = z.object({
@@ -73,5 +83,9 @@ export function getSportradarConfig() {
         : (env.data.SPORTRADAR_ACCESS_LEVEL ?? "trial"),
     language: env.data.SPORTRADAR_LANGUAGE ?? "en",
     baseUrl: env.data.SPORTRADAR_API_BASE_URL ?? "https://api.sportradar.com",
+    enrichNcaaStats: env.data.SPORTRADAR_ENRICH_NCAA_STATS === "true",
+    profileConcurrency: env.data.SPORTRADAR_PROFILE_CONCURRENCY ?? 4,
+    profileLimit: env.data.SPORTRADAR_PROFILE_LIMIT ?? null,
+    requestDelayMs: env.data.SPORTRADAR_REQUEST_DELAY_MS ?? 250,
   } as const;
 }

@@ -6,6 +6,10 @@ type SportradarDraftProviderConfig = {
   accessLevel?: "trial" | "official";
   language?: string;
   baseUrl?: string;
+  enrichNcaaStats?: boolean;
+  profileConcurrency?: number;
+  profileLimit?: number | null;
+  requestDelayMs?: number;
 };
 
 type SportradarProspect = {
@@ -41,6 +45,25 @@ type SportradarProspect = {
 type SportradarProspectsResponse = {
   generated?: string;
   prospects?: SportradarProspect[];
+};
+
+type SportradarPlayerProfileSeasonTeam = {
+  id?: string;
+  name?: string;
+  market?: string;
+  alias?: string;
+  statistics?: Record<string, unknown>;
+};
+
+type SportradarPlayerProfileSeason = {
+  year?: number;
+  type?: string;
+  teams?: SportradarPlayerProfileSeasonTeam[];
+};
+
+type SportradarPlayerProfileResponse = {
+  id?: string;
+  seasons?: SportradarPlayerProfileSeason[];
 };
 
 function toFullName(prospect: SportradarProspect) {
@@ -88,6 +111,97 @@ function mapStatus(value: string | null | undefined): "active" | "declared" | "a
   }
 
   return "active";
+}
+
+function isNumericStatValue(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function flattenStatistics(
+  category: string,
+  value: unknown,
+  currentPath: string[] = [],
+): Array<{ statCategory: string; statName: string; statValue: number }> {
+  if (isNumericStatValue(value)) {
+    return [
+      {
+        statCategory: category,
+        statName: currentPath.join("_"),
+        statValue: value,
+      },
+    ];
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  return Object.entries(value).flatMap(([key, nestedValue]) =>
+    flattenStatistics(category, nestedValue, [...currentPath, key]),
+  );
+}
+
+function toTeamName(team: SportradarPlayerProfileSeasonTeam) {
+  return [team.market, team.name].filter(Boolean).join(" ").trim() || team.alias || "Unknown";
+}
+
+function mapCollegeStatsFromProfile(
+  profile: SportradarPlayerProfileResponse,
+): RawProspectRecord["collegeStats"] {
+  const records =
+    profile.seasons?.flatMap((season) => {
+      if (season.type !== "REG" || !season.year) {
+        return [];
+      }
+
+      return (season.teams ?? []).flatMap((team) => {
+        const statistics = team.statistics;
+
+        if (!statistics || typeof statistics !== "object") {
+          return [];
+        }
+
+        return Object.entries(statistics).flatMap(([category, value]) =>
+          flattenStatistics(category, value).map((stat) => ({
+            season: season.year as number,
+            teamName: toTeamName(team),
+            statCategory: stat.statCategory,
+            statName: stat.statName,
+            statValue: stat.statValue,
+            confidence: "high" as const,
+          })),
+        );
+      });
+    }) ?? [];
+
+  return records;
+}
+
+async function mapWithConcurrency<TInput, TOutput>(
+  items: TInput[],
+  concurrency: number,
+  mapper: (item: TInput, index: number) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results: TOutput[] = new Array(items.length);
+  let currentIndex = 0;
+
+  async function worker() {
+    while (currentIndex < items.length) {
+      const index = currentIndex;
+      currentIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.max(1, concurrency) }, () => worker()),
+  );
+
+  return results;
 }
 
 function mapProspect(
@@ -191,23 +305,40 @@ async function fetchJson<T>(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      "x-api-key": apiKey,
-      accept: "application/json",
-    },
-    signal,
-    next: { revalidate: 0 },
-  });
+  const maxAttempts = 4;
 
-  if (!response.ok) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const response = await fetch(url, {
+      headers: {
+        "x-api-key": apiKey,
+        accept: "application/json",
+      },
+      signal,
+      next: { revalidate: 0 },
+    });
+
+    if (response.ok) {
+      return (await response.json()) as T;
+    }
+
+    if (response.status === 429 && attempt < maxAttempts - 1) {
+      const retryAfterHeader = response.headers.get("retry-after");
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+      const backoffMs = Number.isFinite(retryAfterSeconds)
+        ? retryAfterSeconds * 1000
+        : (attempt + 1) * 1000;
+
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      continue;
+    }
+
     const text = await response.text();
     throw new Error(
       `Sportradar request failed with ${response.status}: ${text.slice(0, 200)}`,
     );
   }
 
-  return (await response.json()) as T;
+  throw new Error("Sportradar request exhausted retry attempts.");
 }
 
 function createEmptyProspectsResponse(): SportradarProspectsResponse {
@@ -225,6 +356,10 @@ export function createSportradarDraftProviderAdapter(
       const accessLevel = config.accessLevel ?? "trial";
       const language = config.language ?? "en";
       const baseUrl = config.baseUrl ?? "https://api.sportradar.com";
+      const shouldEnrichNcaaStats = config.enrichNcaaStats ?? false;
+      const profileConcurrency = config.profileConcurrency ?? 1;
+      const profileLimit = config.profileLimit ?? null;
+      const requestDelayMs = config.requestDelayMs ?? 250;
 
       const prospectsUrl = `${baseUrl}/draft/nfl/${accessLevel}/v1/${language}/${input.draftYear}/prospects.json`;
       const topProspectsUrl = `${baseUrl}/draft/nfl/${accessLevel}/v1/${language}/${input.draftYear}/top_prospects.json`;
@@ -239,7 +374,7 @@ export function createSportradarDraftProviderAdapter(
           topProspectsUrl,
           config.apiKey,
           input.signal,
-        ).catch(() => createEmptyProspectsResponse()),
+        ).catch<SportradarProspectsResponse>(() => createEmptyProspectsResponse()),
       ]);
 
       const byId = new Map<string, RawProspectRecord>();
@@ -272,7 +407,60 @@ export function createSportradarDraftProviderAdapter(
         ];
       }
 
-      return Array.from(byId.values());
+      const prospects = Array.from(byId.values());
+
+      if (!shouldEnrichNcaaStats) {
+        return prospects;
+      }
+
+      const candidates = prospects.filter((prospect) =>
+        prospect.externalIds?.some(
+          (externalId) =>
+            externalId.provider === "sportradar-ncaa" &&
+            externalId.externalType.includes("source_id"),
+        ),
+      );
+
+      const limitedCandidates =
+        profileLimit === null ? candidates : candidates.slice(0, profileLimit);
+
+      await mapWithConcurrency(
+        limitedCandidates,
+        profileConcurrency,
+        async (prospect) => {
+          const ncaaSourceId = prospect.externalIds?.find(
+            (externalId) =>
+              externalId.provider === "sportradar-ncaa" &&
+              externalId.externalType.includes("source_id"),
+          )?.externalId;
+
+          if (!ncaaSourceId) {
+            return prospect;
+          }
+
+          const profileUrl = `${baseUrl}/ncaafb/${accessLevel}/v7/${language}/players/${ncaaSourceId}/profile.json`;
+
+          try {
+            const profile = await fetchJson<SportradarPlayerProfileResponse>(
+              profileUrl,
+              config.apiKey,
+              input.signal,
+            );
+
+            prospect.collegeStats = mapCollegeStatsFromProfile(profile);
+
+            if (requestDelayMs > 0) {
+              await new Promise((resolve) => setTimeout(resolve, requestDelayMs));
+            }
+          } catch {
+            // Profile enrichment is best-effort so draft ingestion remains available.
+          }
+
+          return prospect;
+        },
+      );
+
+      return prospects;
     },
   };
 }
