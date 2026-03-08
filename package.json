@@ -10,6 +10,7 @@
     "dev": "npm run dev -w @nfl-draft-watcher/web",
     "build": "npm run build -w @nfl-draft-watcher/web",
     "lint": "npm run lint -w @nfl-draft-watcher/web",
-    "typecheck": "npm run typecheck -w @nfl-draft-watcher/web"
+    "typecheck": "npm run typecheck -w @nfl-draft-watcher/web",
+    "ingest:prospects": "npm run ingest:prospects -w @nfl-draft-watcher/web"
   }
 }

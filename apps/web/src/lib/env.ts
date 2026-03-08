@@ -5,6 +5,10 @@ const serverEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   INTERNAL_INGEST_TOKEN: z.string().min(16).optional(),
+  SPORTRADAR_API_KEY: z.string().min(24).optional(),
+  SPORTRADAR_ACCESS_LEVEL: z.enum(["trial", "production", "official"]).optional(),
+  SPORTRADAR_LANGUAGE: z.string().min(2).optional(),
+  SPORTRADAR_API_BASE_URL: z.url().optional(),
 });
 
 const clientEnvSchema = z.object({
@@ -45,5 +49,29 @@ export function getInternalIngestToken() {
 }
 
 export function getProspectProviderMode() {
-  return process.env.PROSPECT_PROVIDER_MODE === "mock" ? "mock" : "none";
+  if (process.env.PROSPECT_PROVIDER_MODE === "mock") {
+    return "mock";
+  }
+
+  if (process.env.PROSPECT_PROVIDER_MODE === "sportradar") {
+    return "sportradar";
+  }
+
+  return "none";
+}
+
+export function getSportradarConfig() {
+  if (!env.success || !env.data.SPORTRADAR_API_KEY) {
+    return null;
+  }
+
+  return {
+    apiKey: env.data.SPORTRADAR_API_KEY,
+    accessLevel:
+      env.data.SPORTRADAR_ACCESS_LEVEL === "production"
+        ? "official"
+        : (env.data.SPORTRADAR_ACCESS_LEVEL ?? "trial"),
+    language: env.data.SPORTRADAR_LANGUAGE ?? "en",
+    baseUrl: env.data.SPORTRADAR_API_BASE_URL ?? "https://api.sportradar.com",
+  } as const;
 }

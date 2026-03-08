@@ -40,6 +40,11 @@ export type RawReportRecord = {
 export type RawProspectRecord = {
   externalId: string;
   externalType: string;
+  externalIds?: Array<{
+    provider?: string;
+    externalId: string;
+    externalType: string;
+  }>;
   fullName: string;
   slug?: string;
   position: string;

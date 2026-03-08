@@ -47,6 +47,19 @@ export function normalizeProspectRecord(
   providerName: string,
   rawRecord: RawProspectRecord,
 ): NormalizedProspectBundle {
+  const externalIds = [
+    {
+      provider: providerName,
+      externalId: rawRecord.externalId,
+      externalType: rawRecord.externalType,
+    },
+    ...(rawRecord.externalIds ?? []).map((externalId) => ({
+      provider: externalId.provider ?? providerName,
+      externalId: externalId.externalId,
+      externalType: externalId.externalType,
+    })),
+  ];
+
   const bundle: NormalizedProspectBundle = {
     prospect: {
       fullName: rawRecord.fullName.trim(),
@@ -62,13 +75,7 @@ export function normalizeProspectRecord(
       status: rawRecord.status ?? "active",
       imageUrl: rawRecord.imageUrl ?? null,
     },
-    externalIds: [
-      {
-        provider: providerName,
-        externalId: rawRecord.externalId,
-        externalType: rawRecord.externalType,
-      },
-    ],
+    externalIds,
     measurements: (rawRecord.measurements ?? []).map((measurement) => ({
       metricType: measurement.metricType,
       metricValue: normalizeMeasurementValue(
