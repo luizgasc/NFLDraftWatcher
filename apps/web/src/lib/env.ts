@@ -43,3 +43,7 @@ export function getInternalIngestToken() {
 
   return env.data.INTERNAL_INGEST_TOKEN ?? null;
 }
+
+export function getProspectProviderMode() {
+  return process.env.PROSPECT_PROVIDER_MODE === "mock" ? "mock" : "none";
+}

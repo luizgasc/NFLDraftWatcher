@@ -6,4 +6,5 @@ export interface DraftProviderAdapter {
 }
 
 export * from "./http-draft-provider";
+export * from "./mock-draft-provider";
 export * from "./types";
